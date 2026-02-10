@@ -79,7 +79,7 @@ class TrainPipeline:
         # Fit country encoder on TRAIN ONLY
         encoder = CountryAvgRevenueEncoder().fit(
             X_train[["country"]],
-            y_train_t,
+            y_train_t if "_log" not in TARGET else np.expm1(y_train_t),
             country_col="country",
         )
 

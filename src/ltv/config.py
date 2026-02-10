@@ -43,6 +43,8 @@ TARGET_LOG = TARGET_RAW + "_log"
 TARGET_CAPPED = TARGET_RAW + "_capped"
 TARGET_CAPPED_LOG = TARGET_CAPPED + "_log"
 
+# Threshold choice
+P_MIN_THRESHOLD = 0.007
 
 # Final choice
 TARGET = TARGET_CAPPED

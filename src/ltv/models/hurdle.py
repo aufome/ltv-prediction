@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+from ltv.config import TARGET, P_MIN_THRESHOLD
 
 
 @dataclass
@@ -8,8 +9,8 @@ class HurdleModel:
     clf_raw: object
     clf_cal: object
     reg: object
-    p_min_threshold: float = 0.01
-    reg_in_log_space: bool = True   # reg predicts log1p(revenue) for payers
+    p_min_threshold: float = P_MIN_THRESHOLD
+    reg_in_log_space: bool = "LOG" in TARGET   # reg predicts log1p(revenue) for payers
 
     def predict_payer_proba(self, X: pd.DataFrame) -> np.ndarray:
         # assumes clf_cal has predict_proba

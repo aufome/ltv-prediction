@@ -26,10 +26,10 @@ $$
 
 All features are observed within the first 15 days:
 
-- Engagement (`active_days_*`, streaks, total active days)
-- Funnel events (`subscribe_freq`, `refund_freq`, etc.)
+- Engagement (`active_days_*`, longest streaks, total active days)
+- Funnel events (`subscribe_freq`, `free_trial_freq`, `refund_freq`, etc.)
 - Early monetization (`two_week_revenue`)
-- Geographic baseline (`country_avg_revenue`)
+- Geographic baseline (`country_avg_revenue` (leakage-free))
 
 ---
 
@@ -41,7 +41,7 @@ We apply a **temporal split** based on `first_event_date`:
 - Validation on intermediate period  
 - Test on most recent users  
 
-This avoids future leakage and closely mimics deployment.
+This avoids future leakage and closely mimics real-world deployment conditions.
 
 ---
 
@@ -50,53 +50,53 @@ This avoids future leakage and closely mimics deployment.
 ### Stage 1: Payer Classification
 
 - Model: `XGBClassifier`
-- Metric: AUC ≈ 0.95, PR-AUC ≈ 0.88
+- Handles strong class imbalance via `scale_pos_weight`
+- Metrics: AUC ≈ 0.95, PR-AUC ≈ 0.88
 - Probabilities calibrated using **isotonic regression**
 
 ### Stage 2: Conditional Revenue Regression
 
 - Model: `XGBRegressor`
-- Trained on:
-
-$$
-\log(1 + revenue_{\text{capped99}})
-$$
+- Trained only on paying users
+- Target: 99th-percentile capped revenue
 
 ---
 
-## Calibration & Thresholding
+## Thresholding and Zero-Inflation Control
 
-### Probability Floor
-
-To reduce false revenue assigned to non-payers:
+The hurdle model naturally produces many small positive predictions due to the soft combination:
 
 $$
-\hat{LTV}=0 \quad \text{if } \hat{p} < 0.01
+\hat{LTV} = P(\text{payer}) \cdot E(\text{revenue} \mid \text{payer})
 $$
 
-### Revenue Scaling
-
-Predictions are scaled so that total predicted revenue matches true revenue:
+We experimented with applying a minimum probability threshold:
 
 $$
-scale = \frac{\sum y}{\sum \hat{y}}
+\hat{LTV} = 0 \text{ if } P(\text{payer}) < p_{min}
 $$
+
+A focused sweep around $p_{min} \in [0.005, 0.01]$ revealed a clear trade-off:
+
+- Lower thresholds preserve calibration but over-predict on zero users
+
+- Higher thresholds reduce false positives but under-estimate revenue
+
+Because the unthresholded model already achieves near-perfect revenue calibration, the final model uses the soft hurdle without hard thresholding.
 
 ---
 
 ## Target Engineering Results
 
-| Target | MAE | NMAE | RMSE | Predicted Revenue on True Zeros |
-|-------|-----|------|------|-------------------------------|
-| Raw revenue | 2.39 | 0.89 | 14.12 | 74k |
-| Capped 99% | 1.20 | 0.67 | 5.88 | 56k |
-| **Capped 99% + log** | **1.14** | **0.64** | 6.08 | **14k** |
+| Target | MAE | NMAE | RMSE | Revenue Ratio | Predicted Revenue on True Zeros |
+|-------|-----|------|------|-----|---------------------------|
+| Raw revenue | 2.46 | 0.91 | 14.06 | 1.03 | 123k |
+| **Capped 99%** | **1.27** | **0.71** | **5.78** | **1.00** | **93k** |
+| Capped 99% + log | 1.16 | 0.65 | 5.95 | 0.80 | 63k |
 
-Final target choice:
+Final target choice: `first_year_revenue_capped_99`
 
-$$
-\log(1 + revenue_{\text{capped99}})
-$$
+While the log-transformed target reduces error metrics slightly, it introduces systematic revenue underestimation. The capped (non-log) target achieves better revenue calibration while maintaining strong accuracy, making it more suitable for business use.
 
 ---
 
@@ -129,7 +129,7 @@ Top features:
 - `two_week_revenue`
 - `country_avg_revenue`
 - `renewal_freq`
-- engagement streaks
+- sustained engagement features
 
 SHAP summary plot:
 
@@ -141,14 +141,14 @@ SHAP summary plot:
 
 ## Revenue Capture Performance
 
-Revenue captured by top predicted users:
+Beyond pointwise error metrics, we evaluate the model’s ranking power, which is often more relevant for business decisions.
 
 | Segment | Revenue Captured |
 |--------|------------------|
-| Top 1% | 28.5% |
-| Top 5% | 82.4% |
-| Top 10% | 89.1% |
-| Top 20% | 92.0% |
+| Top 1% | 28.8% |
+| Top 5% | 82.5% |
+| Top 10% | 88.9% |
+| Top 20% | 91.9% |
 
 
 Cumulative revenue capture curve:
@@ -156,6 +156,7 @@ Cumulative revenue capture curve:
 <img src="reports/cumulative_revenue_curve.png" width="400">
 
 
+The model successfully concentrates revenue among a small fraction of high-value users, making it well-suited for targeting, retention, and marketing use cases.
 
 ---
 
@@ -163,13 +164,17 @@ Cumulative revenue capture curve:
 
 This project delivers a production-style LTV system with:
 
-- hurdle modeling for zero inflation  
-- calibrated payer probabilities  
-- capped-log revenue regression  
-- revenue-consistent scaling  
-- SHAP-based explainability  
-- strong ranking utility for targeting  
+- explicit hurdle modeling for zero inflation
 
+- strong payer classification with calibrated probabilities
+
+- capped revenue regression for stability and calibration
+
+- SHAP-based interpretability
+
+- excellent revenue-ranking performance
+
+The final model balances accuracy, calibration, interpretability, and business usefulness.
 
 ---
 

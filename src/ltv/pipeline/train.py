@@ -8,6 +8,7 @@ from ltv.config import (
     TARGET,
     TARGET_RAW,
     MODEL_DIR,
+    P_MIN_THRESHOLD
 )
 from ltv.features.preprocess import Preprocessor, PreprocessorConfig
 from ltv.features.encoders import CountryAvgRevenueEncoder
@@ -25,7 +26,7 @@ class TrainPipeline:
         self,
         preprocessor_params: dict = PREPROCESSOR_PARAMS,
         bundle_name: str = "ltv_bundle.pkl",
-        p_min_threshold: float = 0.01,
+        p_min_threshold: float | None = P_MIN_THRESHOLD,
         clf_params: dict | None = None,
         reg_params: dict | None = None,
     ):
@@ -78,7 +79,7 @@ class TrainPipeline:
         # Fit country encoder on TRAIN ONLY
         encoder = CountryAvgRevenueEncoder().fit(
             X_train[["country"]],
-            y_train_t if "_log" not in TARGET else np.expm1(y_train_t),
+            y_train_t,
             country_col="country",
         )
 
@@ -102,7 +103,7 @@ class TrainPipeline:
         clf_cal = calibrate_classifier_isotonic(clf_raw, X_val_m, y_val_payer)
 
         # Train regressor on payers only
-        # Regression target column is TARGET (your final choice: capped_99_log)
+        # Regression target column is TARGET
         payer_mask_train = (X_train[TARGET_RAW] > 0).values
         payer_mask_val = (X_val[TARGET_RAW] > 0).values
 
@@ -130,7 +131,6 @@ class TrainPipeline:
             classifier_metrics,
             revenue_capture_metrics,
         )
-        from ltv.evaluation.scaling import revenue_scaling_dollars
 
         
         # Evaluate on test
@@ -149,15 +149,11 @@ class TrainPipeline:
         p_test = hurdle.predict_payer_proba(X_test_m)
         y_pred_dollars = hurdle.predict_ltv(X_test_m)
 
-        # optional: enforce revenue scaling for reporting consistency
-        y_pred_scaled, scale_factor = revenue_scaling_dollars(y_test_dollars, y_pred_dollars)
-
         metrics_out = {}
-        metrics_out.update(regression_metrics(y_test_dollars, y_pred_scaled))
-        metrics_out.update(payer_metrics(y_test_dollars, y_pred_scaled))
+        metrics_out.update(regression_metrics(y_test_dollars, y_pred_dollars))
+        metrics_out.update(payer_metrics(y_test_dollars, y_pred_dollars))
         metrics_out.update(classifier_metrics(y_test_payer, p_test))
-        metrics_out.update(revenue_capture_metrics(y_test_dollars, y_pred_scaled))
-        metrics_out["scale_factor"] = scale_factor
+        metrics_out.update(revenue_capture_metrics(y_test_dollars, y_pred_dollars))
 
         logger.info(
             "Test metrics: " + ", ".join(
